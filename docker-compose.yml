@@ -1,0 +1,171 @@
+# Local development stack. All credentials here are dev-only placeholders.
+name: pbkk-microservices
+
+# Reusable health probe: python:3.12-slim has no curl, but httpx is installed.
+x-py-health: &py-health
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 20s
+
+services:
+  # ---------- Infrastructure ----------
+  consul:
+    image: hashicorp/consul:1.19
+    command: agent -server -bootstrap -ui -client=0.0.0.0
+    ports:
+      - "8500:8500" # Consul web UI: live service registry + health status
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI: request waterfall across services
+
+  # ---------- One database per service (database-per-service pattern) ----------
+  user-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: user_svc
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432" # host port differs per database so they never collide
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user_svc -d user_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  product-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: product_db
+      POSTGRES_USER: product_svc
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U product_svc -d product_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: order_svc
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_svc -d order_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Application services ----------
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    environment:
+      SERVICE_NAME: user-service
+      SERVICE_HOST: user-service
+      SERVICE_PORT: "8001"
+      DATABASE_URL: postgresql+psycopg2://user_svc:secret@user-db:5432/user_db
+      CONSUL_HTTP_ADDR: http://consul:8500
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      JWT_SECRET: dev-secret-pbkk
+    ports:
+      - "8001:8001" # direct access for debugging only; clients should use the gateway
+    depends_on:
+      consul:
+        condition: service_healthy
+      user-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *py-health
+      test: ["CMD-SHELL", "python -c \"import httpx;httpx.get('http://localhost:8001/health').raise_for_status()\""]
+
+  product-service:
+    build:
+      context: .
+      dockerfile: services/product-service/Dockerfile
+    environment:
+      SERVICE_NAME: product-service
+      SERVICE_HOST: product-service
+      SERVICE_PORT: "8002"
+      DATABASE_URL: postgresql+psycopg2://product_svc:secret@product-db:5432/product_db
+      CONSUL_HTTP_ADDR: http://consul:8500
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports:
+      - "8002:8002"
+    depends_on:
+      consul:
+        condition: service_healthy
+      product-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *py-health
+      test: ["CMD-SHELL", "python -c \"import httpx;httpx.get('http://localhost:8002/health').raise_for_status()\""]
+
+  order-service:
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    environment:
+      SERVICE_NAME: order-service
+      SERVICE_HOST: order-service
+      SERVICE_PORT: "8003"
+      DATABASE_URL: postgresql+psycopg2://order_svc:secret@order-db:5432/order_db
+      CONSUL_HTTP_ADDR: http://consul:8500
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports:
+      - "8003:8003"
+    depends_on:
+      consul:
+        condition: service_healthy
+      order-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *py-health
+      test: ["CMD-SHELL", "python -c \"import httpx;httpx.get('http://localhost:8003/health').raise_for_status()\""]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      SERVICE_NAME: gateway
+      SERVICE_HOST: gateway
+      SERVICE_PORT: "8000"
+      CONSUL_HTTP_ADDR: http://consul:8500
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      JWT_SECRET: dev-secret-pbkk
+    ports:
+      - "8000:8000" # the only port a client actually needs
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      <<: *py-health
+      test: ["CMD-SHELL", "python -c \"import httpx;httpx.get('http://localhost:8000/health').raise_for_status()\""]
+
+volumes:
+  user_db_data:
+  product_db_data:
+  order_db_data:

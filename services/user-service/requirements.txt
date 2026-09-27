@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+psycopg2-binary
+httpx
+PyJWT
+bcrypt
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-httpx

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Demo Microservices PBKK</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c1f26; --muted: #6b7280;
+    --line: #e3e6ea; --accent: #2f6feb; --ok: #17803d; --bad: #b42318; --warn: #b54708;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --card: #1c1f25; --ink: #e8eaed; --muted: #9aa3af;
+      --line: #2c3038; --accent: #6b9bff; --ok: #4ade80; --bad: #f87171; --warn: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 12px; letter-spacing: .01em; }
+  p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+          background: var(--bg); color: var(--ink); font: inherit; }
+  button { margin-top: 12px; padding: 8px 14px; border: 0; border-radius: 6px; cursor: pointer;
+           background: var(--accent); color: #fff; font: inherit; font-weight: 500; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .row { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+  .row input { flex: 1; }
+  .row button { margin: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+          padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; margin: 0 6px 6px 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.passing { background: var(--ok); } .dot.critical { background: var(--bad); }
+  .dot.warning { background: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  #log { max-height: 460px; overflow: auto; }
+  .entry { border-top: 1px solid var(--line); padding: 10px 0; font-family: var(--mono); font-size: 12.5px; }
+  .entry:first-child { border-top: 0; }
+  .entry .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .code { font-weight: 700; } .code.ok { color: var(--ok); } .code.bad { color: var(--bad); }
+  pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+  .who { font-size: 13px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Demo Microservices &mdash; PBKK</h1>
+  <p class="sub">
+    Semua request di halaman ini dikirim ke API Gateway (<code>:8000</code>), lalu diteruskan
+    ke service tujuan berdasarkan hasil lookup di Consul.
+    Lihat juga <a href="http://localhost:8500" target="_blank" rel="noopener">Consul UI</a> dan
+    <a href="http://localhost:16686" target="_blank" rel="noopener">Jaeger UI</a>.
+  </p>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2>Status service (live dari Consul)</h2>
+    <div id="registry"><span class="pill"><span class="dot"></span> memuat&hellip;</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1 &middot; Daftar user</h2>
+      <label>Username</label><input id="r-user" value="siti">
+      <label>Email</label><input id="r-mail" value="siti@its.ac.id">
+      <label>Password</label><input id="r-pass" type="password" value="rahasia123">
+      <button onclick="doRegister()">POST /api/users</button>
+    </div>
+
+    <div class="card">
+      <h2>2 &middot; Login</h2>
+      <label>Username</label><input id="l-user" value="siti">
+      <label>Password</label><input id="l-pass" type="password" value="rahasia123">
+      <button onclick="doLogin()">POST /api/auth/login</button>
+      <div class="who" id="who">Belum login &mdash; order akan ditolak 401 oleh Gateway.</div>
+    </div>
+
+    <div class="card">
+      <h2>3 &middot; Tambah produk</h2>
+      <label>Nama</label><input id="p-name" value="Kaos Teknik">
+      <label>Harga (Rp)</label><input id="p-price" type="number" value="95000">
+      <label>Stok</label><input id="p-stock" type="number" value="5">
+      <button onclick="addProduct()">POST /api/products</button>
+      <button class="ghost" onclick="loadCatalog()">Muat katalog</button>
+      <table id="catalog"></table>
+    </div>
+
+    <div class="card">
+      <h2>4 &middot; Buat order</h2>
+      <div id="items"></div>
+      <button class="ghost" onclick="addItemRow()">+ Tambah item</button>
+      <button onclick="createOrder()">POST /api/orders</button>
+      <div class="who">Butuh token dari langkah 2. Coba juga stok berlebih untuk melihat kompensasi.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Log request &amp; response</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+let token = null;
+
+// Single place where every call goes out, so each one lands in the log panel.
+async function api(method, path, body, useToken) {
+  const options = { method, headers: {} };
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  if (useToken && token) options.headers['Authorization'] = 'Bearer ' + token;
+  let status = 0, data = null;
+  try {
+    const response = await fetch(path, options);
+    status = response.status;
+    const text = await response.text();
+    try { data = JSON.parse(text); } catch { data = text; }
+  } catch (err) {
+    data = String(err);
+  }
+  log(method, path, status, body, data);
+  return { status, data };
+}
+
+// Newest entry first: during a demo the latest call should be visible without scrolling.
+function log(method, path, status, sent, received) {
+  const entry = document.createElement('div');
+  entry.className = 'entry';
+  const ok = status >= 200 && status < 300;
+  entry.innerHTML =
+    '<div class="head"><span>' + new Date().toLocaleTimeString() + '</span>' +
+    '<strong>' + method + ' ' + path + '</strong>' +
+    '<span class="code ' + (ok ? 'ok' : 'bad') + '">' + (status || 'ERR') + '</span></div>' +
+    (sent ? '<pre>request  ' + JSON.stringify(sent) + '</pre>' : '') +
+    '<pre>response ' + JSON.stringify(received) + '</pre>';
+  const panel = document.getElementById('log');
+  panel.prepend(entry);
+}
+
+async function doRegister() {
+  await api('POST', '/api/users', {
+    username: val('r-user'), email: val('r-mail'), password: val('r-pass'),
+  });
+}
+
+async function doLogin() {
+  const { status, data } = await api('POST', '/api/auth/login', {
+    username: val('l-user'), password: val('l-pass'),
+  });
+  if (status === 200) {
+    token = data.access_token;
+    document.getElementById('who').textContent =
+      'Login sebagai user #' + data.user_id + ' — token tersimpan di halaman ini.';
+  }
+}
+
+async function addProduct() {
+  await api('POST', '/api/products', {
+    name: val('p-name'), price: Number(val('p-price')), stock: Number(val('p-stock')),
+  });
+  loadCatalog();
+}
+
+async function loadCatalog() {
+  const { status, data } = await api('GET', '/api/products');
+  const table = document.getElementById('catalog');
+  if (status !== 200 || !Array.isArray(data)) { table.innerHTML = ''; return; }
+  table.innerHTML = '<tr><th>ID</th><th>Nama</th><th>Harga</th><th>Stok</th></tr>' +
+    data.map(p => '<tr><td>' + p.id + '</td><td>' + escapeHtml(p.name) + '</td><td>' +
+      p.price.toLocaleString('id-ID') + '</td><td>' + p.stock + '</td></tr>').join('');
+}
+
+// Order lines are dynamic so a multi-item order can be built — that is the case
+// where a failure halfway through triggers stock compensation.
+function addItemRow(productId = 1, quantity = 1) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML =
+    '<div style="flex:1"><label>Product ID</label><input type="number" value="' + productId + '"></div>' +
+    '<div style="flex:1"><label>Qty</label><input type="number" value="' + quantity + '"></div>' +
+    '<button class="ghost" onclick="this.parentElement.remove()">&times;</button>';
+  document.getElementById('items').appendChild(row);
+}
+
+async function createOrder() {
+  const items = [...document.querySelectorAll('#items .row')].map(row => {
+    const inputs = row.querySelectorAll('input');
+    return { product_id: Number(inputs[0].value), quantity: Number(inputs[1].value) };
+  });
+  await api('POST', '/api/orders', { items }, true);
+  loadCatalog();
+}
+
+// Polls the gateway, which reads the Consul registry: stopping a container turns
+// its dot red here within a few seconds.
+async function refreshRegistry() {
+  try {
+    const response = await fetch('/registry');
+    const services = await response.json();
+    document.getElementById('registry').innerHTML = services.map(s =>
+      '<span class="pill"><span class="dot ' + s.status + '"></span>' +
+      escapeHtml(s.service) + ' &middot; ' + s.status + '</span>').join('');
+  } catch {
+    document.getElementById('registry').innerHTML =
+      '<span class="pill"><span class="dot critical"></span> gateway/consul tidak terjangkau</span>';
+  }
+}
+
+function val(id) { return document.getElementById(id).value; }
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+addItemRow();
+loadCatalog();
+refreshRegistry();
+setInterval(refreshRegistry, 3000);
+</script>
+</body>
+</html>
